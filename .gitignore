@@ -1,0 +1,15 @@
+# Секреты — НИКОГДА не должны попасть на GitHub
+.env
+*.session
+*.session-journal
+
+# Claude Code local settings
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+venv/
+.venv/
