@@ -70,6 +70,9 @@ GROUPS_LAYER_C = [
     "balichat",         # БалиФорум — крупнейшее русское комьюнити на Бали
     "balichatik",       # БалиЧатик — общий
     "balichat_bukit",   # БалиЧат Букит
+    "balichatsanur",    # БалиЧат Санур
+    "bali_helping",     # Помощь на Бали
+    "HelpChatBali",     # Help Chat Bali
 ]
 
 # Все группы объединяем в один плоский список для Telethon
