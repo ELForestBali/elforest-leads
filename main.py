@@ -23,27 +23,16 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# Ключевые слова для быстрого pre-фильтра (бесплатно, до вызова Haiku)
-# Если ни одно из них не встречается в сообщении — сразу пропускаем
-KEYWORDS = [
-    # Английские
-    "villa", "rent", "rental", "ubud", "bali", "accommodation",
-    "looking for", "need place", "staying", "apartment", "house",
-    "digital nomad", "remote work", "coworking",
-    # Русские
-    "виллу", "аренда", "снять", "ищу жильё", "ищу жилье",
-    "убуд", "бали", "жильё", "жилье", "квартиру",
-    "номад", "удалённо", "работаю удалённо",
-]
-
 def passes_keyword_filter(text: str) -> bool:
     """
-    Быстрая проверка на ключевые слова.
-    Если ни одного ключевого слова нет — Haiku не вызываем.
-    Это экономит ~85-90% вызовов API.
+    Двухступенчатый фильтр: сначала негативные слова (быстрый отсев),
+    затем хотя бы одно позитивное. Haiku не вызываем если не прошло.
+    Экономит ~85-90% API-вызовов.
     """
     text_lower = text.lower()
-    return any(kw in text_lower for kw in KEYWORDS)
+    if any(kw in text_lower for kw in config.NEGATIVE_KEYWORDS):
+        return False
+    return any(kw in text_lower for kw in config.ALL_POSITIVE_KEYWORDS)
 
 async def main():
     log.info("🌿 ElForest Lead Monitor запускается...")
@@ -90,6 +79,7 @@ async def main():
             chat = await event.get_chat()
             chat_title = getattr(chat, "title", "Unknown group")
         except Exception:
+            chat = None
             chat_title = "Unknown group"
 
         log.info(f"🔍 Анализируем сообщение от {sender_name} в '{chat_title}'")
@@ -103,8 +93,10 @@ async def main():
         # Шаг 4: сохраняем в базу данных (все сообщения прошедшие keyword-фильтр)
         await save_lead(msg_id, msg_text, result, sender_name, username, chat_title)
 
-        # Шаг 5: отправляем алерт только если score достаточно высокий
-        if score >= config.MIN_SCORE:
+        # Шаг 5: отправляем алерт только если score выше порога слоя группы
+        chat_username = getattr(chat, "username", "") or ""
+        min_score = config.get_min_score(chat_username)
+        if score >= min_score:
             log.info(f"   🔥 АЛЕРТ! Отправляем уведомление.")
             await send_alert(msg_text, result, sender_name, username, chat_title)
 
