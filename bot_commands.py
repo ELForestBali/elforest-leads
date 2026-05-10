@@ -135,6 +135,42 @@ async def _backfill(http: httpx.AsyncClient, tg_client, limit: int = 100):
     await _send(http, f"✅ Бэкфилл завершён. Новых: {total_new}, алертов: {total_alerted}.")
 
 
+async def _check_groups(http: httpx.AsyncClient, tg_client):
+    """Проверяет реальный доступ к каждой группе из TARGET_GROUPS."""
+    from config import TARGET_GROUPS
+    await _send(http, f"🔍 Проверяю доступ к {len(TARGET_GROUPS)} группам...")
+
+    ok, banned, missing = [], [], []
+
+    for group in TARGET_GROUPS:
+        try:
+            msgs = await tg_client.get_messages(group, limit=1)
+            ok.append(group)
+        except Exception as e:
+            err = str(e).lower()
+            if any(w in err for w in ("banned", "forbidden", "kicked", "restricted", "private")):
+                banned.append((group, str(e)[:60]))
+            else:
+                missing.append((group, str(e)[:60]))
+        await asyncio.sleep(0.5)
+
+    lines = [f"✅ <b>Доступно ({len(ok)}):</b>"]
+    for g in ok:
+        lines.append(f"  • {g}")
+
+    if banned:
+        lines.append(f"\n🚫 <b>Забанен / нет доступа ({len(banned)}):</b>")
+        for g, e in banned:
+            lines.append(f"  • {g} — {e}")
+
+    if missing:
+        lines.append(f"\n❓ <b>Другая ошибка ({len(missing)}):</b>")
+        for g, e in missing:
+            lines.append(f"  • {g} — {e}")
+
+    await _send(http, "\n".join(lines))
+
+
 async def _send(client: httpx.AsyncClient, text: str):
     await client.post(
         f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
@@ -154,7 +190,7 @@ async def poll_commands(tg_client):
 
     async with httpx.AsyncClient(timeout=timeout) as http:
         try:
-            await _send(http, "🤖 ElForest Monitor запущен. Команды: /stats · /reprocess · /backfill [N]")
+            await _send(http, "🤖 ElForest Monitor запущен. Команды: /stats · /reprocess · /backfill [N] · /checkgroups")
         except Exception as e:
             log.warning(f"[bot_commands] стартовое сообщение не отправлено: {e}")
 
@@ -180,6 +216,9 @@ async def poll_commands(tg_client):
                         parts = text.split()
                         limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 100
                         asyncio.create_task(_backfill(http, tg_client, limit))
+
+                    elif text.startswith("/checkgroups"):
+                        asyncio.create_task(_check_groups(http, tg_client))
 
             except asyncio.CancelledError:
                 break
