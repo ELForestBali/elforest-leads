@@ -15,6 +15,7 @@ import config
 from db import init_db, is_duplicate, save_lead
 from scorer import score_lead
 from alerter import send_alert
+from emailer import send_email_alert
 
 # Настраиваем логи — будут видны в Railway Console
 logging.basicConfig(
@@ -99,6 +100,7 @@ async def main():
         if score >= min_score:
             log.info(f"   🔥 АЛЕРТ! Отправляем уведомление.")
             await send_alert(msg_text, result, sender_name, username, chat_title)
+            await send_email_alert(msg_text, result, sender_name, username, chat_title)
 
     # Запускаем клиент и держим соединение
     await client.start()

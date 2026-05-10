@@ -19,6 +19,9 @@ BOT_TOKEN           = os.environ["BOT_TOKEN"]
 ALERT_CHAT_ID       = int(os.environ.get("ALERT_CHAT_ID", "1024728900"))
 ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 DATABASE_URL        = os.environ["DATABASE_URL"]
+EMAIL_FROM          = os.environ.get("EMAIL_FROM", "")
+EMAIL_PASSWORD      = os.environ.get("EMAIL_PASSWORD", "")
+EMAIL_TO            = "elforestbydsg@gmail.com"
 
 # ─────────────────────────────────────────────
 # LAYER A — жилищные чаты, высокий intent
@@ -66,12 +69,7 @@ GROUPS_LAYER_B = [
 GROUPS_LAYER_C = [
     "balichat",         # БалиФорум — крупнейшее русское комьюнити на Бали
     "balichatik",       # БалиЧатик — общий
-    "bali_canggu",      # Бали Чангу
     "balichat_bukit",   # БалиЧат Букит
-    "balichatsanur",    # БалиЧат Санур
-    "bali_forum_chat",  # Бали Форум Чат
-    "bali_helping",     # Помощь на Бали — советы, иногда жильё
-    "HelpChatBali",     # Help Chat Bali
 ]
 
 # Все группы объединяем в один плоский список для Telethon
