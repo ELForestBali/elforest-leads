@@ -1,6 +1,10 @@
 import anthropic
 import json
+import logging
+import re
 import config
+
+log = logging.getLogger(__name__)
 
 # Клиент Anthropic создаётся один раз при импорте модуля
 client = anthropic.AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY)
@@ -65,9 +69,13 @@ async def score_lead(text: str) -> dict:
                 "content": text[:1500]
             }]
         )
-        return json.loads(resp.content[0].text)
-    except json.JSONDecodeError:
-        # Если Haiku вернул невалидный JSON (редко, но бывает) — возвращаем нейтральный результат
+        raw = resp.content[0].text
+        # Снимаем markdown-обёртку если модель добавила ```json ... ```
+        cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+        return json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        log.error(f"[scorer] JSON parse error: {e} | raw: {raw!r}")
         return {"score": 0, "tier": "cold", "intent": "other",
                 "duration": "unknown", "budget_signal": False,
                 "reason": "ошибка парсинга ответа"}
