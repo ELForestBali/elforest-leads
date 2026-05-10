@@ -49,7 +49,6 @@ async def main():
     session = StringSession(config.SESSION_STRING) if config.SESSION_STRING else StringSession()
     client = TelegramClient(session, config.API_ID, config.API_HASH)
 
-    @client.on(events.NewMessage(chats=config.TARGET_GROUPS))
     async def handle_new_message(event):
         """Обработчик каждого нового сообщения в отслеживаемых группах."""
         msg_text = event.message.message
@@ -108,8 +107,28 @@ async def main():
 
     # Запускаем клиент и держим соединение
     await client.start()
-    log.info(f"✅ Telethon подключён. Слушаем {len(config.TARGET_GROUPS)} групп(ы)...")
-    log.info(f"   Группы: {', '.join(str(g) for g in config.TARGET_GROUPS)}")
+
+    # Резолвим группы в числовые ID — пропускаем несуществующие
+    valid_chats = []
+    for group in config.TARGET_GROUPS:
+        try:
+            entity = await client.get_entity(group)
+            valid_chats.append(entity.id)
+        except Exception as e:
+            log.warning(f"⚠️  Группа '{group}' не найдена, пропускаем: {e}")
+
+    if not valid_chats:
+        log.error("Нет ни одной валидной группы — выходим.")
+        return
+
+    # Регистрируем обработчик только для валидных групп
+    client.add_event_handler(
+        handle_new_message,
+        events.NewMessage(chats=valid_chats)
+    )
+
+    log.info(f"✅ Telethon подключён. Слушаем {len(valid_chats)}/{len(config.TARGET_GROUPS)} групп(ы)...")
+    log.info(f"   Валидных групп: {len(valid_chats)}")
 
     await client.run_until_disconnected()
 
