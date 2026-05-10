@@ -19,9 +19,8 @@ BOT_TOKEN           = os.environ["BOT_TOKEN"]
 ALERT_CHAT_ID       = int(os.environ.get("ALERT_CHAT_ID", "1024728900"))
 ANTHROPIC_API_KEY   = os.environ["ANTHROPIC_API_KEY"]
 DATABASE_URL        = os.environ["DATABASE_URL"]
-EMAIL_FROM          = os.environ.get("EMAIL_FROM", "")
-EMAIL_PASSWORD      = os.environ.get("EMAIL_PASSWORD", "")
 EMAIL_TO            = "elforestbydsg@gmail.com"
+RESEND_API_KEY      = os.environ.get("RESEND_API_KEY", "")
 
 # ─────────────────────────────────────────────
 # LAYER A — жилищные чаты, высокий intent

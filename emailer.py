@@ -1,26 +1,13 @@
-import asyncio
-import smtplib
-import ssl
-from email.mime.text import MIMEText
+import httpx
+import config
 from datetime import datetime, timezone
 
-import config
-
-TIER_LABEL   = {"hot": "HOT", "warm": "WARM", "cold": "COLD"}
-INTENT_LABEL = {"rent": "аренда", "buy": "покупка", "info": "информация", "other": "другое"}
+TIER_LABEL     = {"hot": "HOT", "warm": "WARM", "cold": "COLD"}
+INTENT_LABEL   = {"rent": "аренда", "buy": "покупка", "info": "информация", "other": "другое"}
 DURATION_LABEL = {"short": "краткосрочно", "long": "долгосрочно", "unknown": "не указано"}
 
-def _send_sync(subject: str, body: str):
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = subject
-    msg["From"]    = config.EMAIL_FROM
-    msg["To"]      = config.EMAIL_TO
+RESEND_URL = "https://api.resend.com/emails"
 
-    ctx = ssl.create_default_context()
-    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
-        smtp.starttls(context=ctx)
-        smtp.login(config.EMAIL_FROM, config.EMAIL_PASSWORD)
-        smtp.sendmail(config.EMAIL_FROM, config.EMAIL_TO, msg.as_bytes())
 
 async def send_email_alert(
     text: str,
@@ -29,7 +16,7 @@ async def send_email_alert(
     username: str,
     chat_title: str,
 ):
-    if not config.EMAIL_FROM or not config.EMAIL_PASSWORD:
+    if not config.RESEND_API_KEY:
         return
 
     score    = result.get("score", 0)
@@ -59,6 +46,18 @@ async def send_email_alert(
     )
 
     try:
-        await asyncio.to_thread(_send_sync, subject, body)
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                RESEND_URL,
+                headers={"Authorization": f"Bearer {config.RESEND_API_KEY}"},
+                json={
+                    "from":    "ElForest Monitor <onboarding@resend.dev>",
+                    "to":      [config.EMAIL_TO],
+                    "subject": subject,
+                    "text":    body,
+                },
+            )
+            if resp.status_code not in (200, 201):
+                print(f"[emailer] ошибка Resend: {resp.status_code} {resp.text}")
     except Exception as e:
         print(f"[emailer] ошибка отправки: {e}")
