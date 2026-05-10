@@ -16,6 +16,7 @@ from db import init_db, is_duplicate, save_lead
 from scorer import score_lead
 from alerter import send_alert
 from emailer import send_email_alert
+from bot_commands import poll_commands
 
 # Настраиваем логи — будут видны в Railway Console
 logging.basicConfig(
@@ -101,6 +102,9 @@ async def main():
             log.info(f"   🔥 АЛЕРТ! Отправляем уведомление.")
             await send_alert(msg_text, result, sender_name, username, chat_title)
             await send_email_alert(msg_text, result, sender_name, username, chat_title)
+
+    # Запускаем бот-команды в фоне (отвечает на /stats)
+    asyncio.create_task(poll_commands())
 
     # Запускаем клиент и держим соединение
     await client.start()
