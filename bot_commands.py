@@ -1,7 +1,10 @@
 import asyncio
+import logging
 import httpx
 import config
 from db import get_pool
+
+log = logging.getLogger(__name__)
 
 
 async def _get_stats_text() -> str:
@@ -67,8 +70,15 @@ async def poll_commands():
     """
     offset = 0
     timeout = httpx.Timeout(35.0, connect=10.0)
+    log.info("🤖 Bot command polling запущен. Напиши боту /stats")
 
     async with httpx.AsyncClient(timeout=timeout) as client:
+        # Сообщаем о старте в алерт-чат
+        try:
+            await _send(client, "🤖 ElForest Monitor запущен. Команды: /stats")
+        except Exception as e:
+            log.warning(f"[bot_commands] не удалось отправить стартовое сообщение: {e}")
+
         while True:
             try:
                 resp = await client.get(
@@ -78,11 +88,12 @@ async def poll_commands():
                 for update in resp.json().get("result", []):
                     offset = update["update_id"] + 1
                     text = update.get("message", {}).get("text", "")
+                    log.info(f"[bot_commands] команда получена: {text!r}")
                     if text.startswith("/stats"):
                         stats = await _get_stats_text()
                         await _send(client, stats)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[bot_commands] ошибка: {e}")
+                log.error(f"[bot_commands] ошибка: {e}")
                 await asyncio.sleep(5)
