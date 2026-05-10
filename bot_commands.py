@@ -2,7 +2,10 @@ import asyncio
 import logging
 import httpx
 import config
-from db import get_pool
+from db import get_pool, get_failed_leads, update_lead_score, is_duplicate, save_lead
+from scorer import score_lead
+from alerter import send_alert
+from emailer import send_email_alert
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +53,88 @@ async def _get_stats_text() -> str:
     return "\n".join(lines)
 
 
+async def _reprocess(http: httpx.AsyncClient):
+    """Перескоривает лиды с ошибкой парсинга и шлёт алерты."""
+    failed = await get_failed_leads()
+    if not failed:
+        await _send(http, "✅ Нет записей с ошибкой парсинга.")
+        return
+
+    await _send(http, f"🔄 Перескориваю {len(failed)} записей...")
+    alerted = 0
+    for row in failed:
+        result = await score_lead(row["text"])
+        await update_lead_score(row["msg_id"], result)
+        score = result.get("score", 0)
+        chat_username = ""
+        min_score = config.get_min_score(chat_username)
+        if score >= min_score:
+            await send_alert(row["text"], result, row["sender_name"], row["username"], row["chat_title"])
+            await send_email_alert(row["text"], result, row["sender_name"], row["username"], row["chat_title"])
+            alerted += 1
+
+    await _send(http, f"✅ Готово. Обработано: {len(failed)}, алертов отправлено: {alerted}.")
+
+
+async def _backfill(http: httpx.AsyncClient, tg_client, limit: int = 100):
+    """Забирает последние N сообщений из каждой группы и обрабатывает новые."""
+    from config import TARGET_GROUPS, get_min_score, NEGATIVE_KEYWORDS, ALL_POSITIVE_KEYWORDS
+
+    await _send(http, f"🔄 Бэкфилл: последние {limit} сообщений × {len(TARGET_GROUPS)} групп...")
+
+    total_new = 0
+    total_alerted = 0
+
+    for group in TARGET_GROUPS:
+        try:
+            async for msg in tg_client.iter_messages(group, limit=limit):
+                text = msg.message or ""
+                if not text or len(text) < 25:
+                    continue
+                text_lower = text.lower()
+                if any(kw in text_lower for kw in NEGATIVE_KEYWORDS):
+                    continue
+                if not any(kw in text_lower for kw in ALL_POSITIVE_KEYWORDS):
+                    continue
+
+                msg_id = f"{msg.chat_id}_{msg.id}"
+                if await is_duplicate(msg_id):
+                    continue
+
+                try:
+                    sender = await msg.get_sender()
+                    sender_name = getattr(sender, "first_name", "") or "Unknown"
+                    username = getattr(sender, "username", None) or ""
+                except Exception:
+                    sender_name = "Unknown"
+                    username = ""
+
+                try:
+                    chat = await msg.get_chat()
+                    chat_title = getattr(chat, "title", group)
+                    chat_uname = getattr(chat, "username", "") or ""
+                except Exception:
+                    chat_title = group
+                    chat_uname = ""
+
+                result = await score_lead(text)
+                await save_lead(msg_id, text, result, sender_name, username, chat_title)
+                total_new += 1
+
+                score = result.get("score", 0)
+                if score >= get_min_score(chat_uname):
+                    await send_alert(text, result, sender_name, username, chat_title)
+                    await send_email_alert(text, result, sender_name, username, chat_title)
+                    total_alerted += 1
+
+                await asyncio.sleep(0.3)  # щадящий темп
+
+        except Exception as e:
+            log.warning(f"[backfill] группа {group}: {e}")
+
+    await _send(http, f"✅ Бэкфилл завершён. Новых: {total_new}, алертов: {total_alerted}.")
+
+
 async def _send(client: httpx.AsyncClient, text: str):
     await client.post(
         f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage",
@@ -62,36 +147,40 @@ async def _send(client: httpx.AsyncClient, text: str):
     )
 
 
-async def poll_commands():
-    """
-    Long-polling петля для приёма команд от бота.
-    Запускается как фоновая задача из main.py.
-    Отвечает на /stats статистикой из БД.
-    """
+async def poll_commands(tg_client):
     offset = 0
     timeout = httpx.Timeout(35.0, connect=10.0)
     log.info("🤖 Bot command polling запущен. Напиши боту /stats")
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        # Сообщаем о старте в алерт-чат
+    async with httpx.AsyncClient(timeout=timeout) as http:
         try:
-            await _send(client, "🤖 ElForest Monitor запущен. Команды: /stats")
+            await _send(http, "🤖 ElForest Monitor запущен. Команды: /stats · /reprocess · /backfill [N]")
         except Exception as e:
-            log.warning(f"[bot_commands] не удалось отправить стартовое сообщение: {e}")
+            log.warning(f"[bot_commands] стартовое сообщение не отправлено: {e}")
 
         while True:
             try:
-                resp = await client.get(
+                resp = await http.get(
                     f"https://api.telegram.org/bot{config.BOT_TOKEN}/getUpdates",
                     params={"offset": offset, "timeout": 30, "allowed_updates": ["message"]},
                 )
                 for update in resp.json().get("result", []):
                     offset = update["update_id"] + 1
                     text = update.get("message", {}).get("text", "")
-                    log.info(f"[bot_commands] команда получена: {text!r}")
+                    log.info(f"[bot_commands] команда: {text!r}")
+
                     if text.startswith("/stats"):
                         stats = await _get_stats_text()
-                        await _send(client, stats)
+                        await _send(http, stats)
+
+                    elif text.startswith("/reprocess"):
+                        await _reprocess(http)
+
+                    elif text.startswith("/backfill"):
+                        parts = text.split()
+                        limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 100
+                        asyncio.create_task(_backfill(http, tg_client, limit))
+
             except asyncio.CancelledError:
                 break
             except Exception as e:

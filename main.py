@@ -102,8 +102,8 @@ async def main():
             await send_alert(msg_text, result, sender_name, username, chat_title)
             await send_email_alert(msg_text, result, sender_name, username, chat_title)
 
-    # Запускаем бот-команды в фоне (отвечает на /stats)
-    asyncio.create_task(poll_commands())
+    # Запускаем бот-команды в фоне (отвечает на /stats, /reprocess, /backfill)
+    asyncio.create_task(poll_commands(client))
 
     # Запускаем клиент и держим соединение
     await client.start()

@@ -49,6 +49,32 @@ async def is_duplicate(msg_id: str) -> bool:
         )
         return row is not None
 
+async def get_failed_leads():
+    """Возвращает лиды с ошибкой парсинга для повторной обработки."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT msg_id, text, sender_name, username, chat_title "
+            "FROM leads WHERE score = 0 AND reason = 'ошибка парсинга ответа'"
+        )
+
+async def update_lead_score(msg_id: str, result: dict):
+    """Обновляет score существующего лида после повторной обработки."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE leads SET score=$2, tier=$3, intent=$4, duration=$5, budget=$6, reason=$7
+            WHERE msg_id=$1
+        """,
+            msg_id,
+            result.get("score"),
+            result.get("tier"),
+            result.get("intent"),
+            result.get("duration"),
+            result.get("budget_signal"),
+            result.get("reason"),
+        )
+
 async def save_lead(msg_id: str, text: str, result: dict, sender_name: str, username: str, chat_title: str):
     """Сохраняет лид в базу данных."""
     pool = await get_pool()
